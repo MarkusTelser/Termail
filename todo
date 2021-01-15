@@ -1,0 +1,25 @@
+TerminalNotificationCenter Project Doc:
+
+done:
+- make esc key work 
+- print every character while waiting for enter
+- do not printwork also with other window sizes
+- check when to print start cmd instruction
+- api check email and copy into window 
+- draw init screen first so dont have to wait for api
+- global cmd fixen, so cmd output works again
+- copy subject and from into window 
+- size subject and from into window
+- update clock every one minute
+- clock show in another window 
+- check if resizing works correct
+- try delete key to get working in cmd
+- make everything colorfull
+- autostart with script
+- loading screen
+
+to do:
+unread email after getting
+option to set read
+info box with comands
+fill up clock window
