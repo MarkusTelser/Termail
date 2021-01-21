@@ -5,11 +5,10 @@ import imaplib
 import email
 from email.header import decode_header
 import pyfiglet
-from os import system
 import subprocess
 import concurrent.futures
 from multiprocessing import Process
-from credentials import *
+import credentials_real as cred
 
 
 class TerMail:
@@ -17,9 +16,9 @@ class TerMail:
         self.bar = '█'  # an extended ASCII 'fill' character
         self.stdscr = curses.initscr()
         self.cmd = "this is your command line!"
-        self.IMAPSERVER = credentials.IMAPSERVER
-        self.USER = credentials.USER
-        self.PASSWORD = credentials.PASSWORD
+        self.IMAPSERVER = cred.IMAPSERVER
+        self.USER = cred.USER
+        self.PASSWORD = cred.PASSWORD
         self.unreadcount = [] * 10
         self.subject = [] * len(self.IMAPSERVER) * 5
         self.from_ = [] * len(self.IMAPSERVER) * 5
@@ -31,9 +30,13 @@ class TerMail:
         curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK)
         curses.init_pair(2, curses.COLOR_RED, curses.COLOR_BLACK)
 
+        x, y = stdscr.getmaxyx()
+
         self.win_day = stdscr.subwin(20, 200, 5, 7)
         self.win2 = stdscr.subwin(30, 200, 15, 5)
         self.win_cmd = stdscr.subwin(1, 117, 57, 2)
+        self.win_mail = stdscr.subwin(80, int(y / 2) + 10, 5, 50)
+        print(x - 10)
 
         # run program
         self.printClock()
@@ -41,17 +44,18 @@ class TerMail:
         self.printHelp()
         self.stdscr.refresh()
 
-
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            executor.map(self.getMail, self.IMAPSERVER, (i for i in range(0, len(self.IMAPSERVER))))
-        self.printEmail()
-
-        self.stdscr.refresh()
         p = Process(target=self.cmdinput)
         p.start()
-        p.join()
 
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            for i in range(0, len(self.IMAPSERVER)):
+                executor.submit(self.getMail, self.IMAPSERVER[i], i)
+        executor.shutdown(wait=True)
+        self.stdscr.clear()
+        self.printEmail()
+        self.stdscr.refresh()
+
+        p.join()
 
     def getMail(self, IMAPSERVER, i):
         try:
@@ -124,11 +128,11 @@ class TerMail:
         h, w = self.stdscr.getmaxyx()
         for i in range(0, len(self.IMAPSERVER)):
             unread = int(len(self.subject) / len(self.IMAPSERVER))
-            self.stdscr.addstr(3 + (i * unread * 2) + (i * abstand), int(w / 2) + 2,
-                               str(self.USER[i])[0:int(w / 2) - 3],
-                               curses.color_pair(1))
-            self.stdscr.addstr(4 + (i * unread * 2) + (i * abstand), int(w / 2) + 2,
-                               "Unread E-Mails: " + str(self.unreadcount[i]), curses.A_BOLD)
+            self.win_mail.addstr(3 + (i * unread * 2) + (i * abstand), 1,
+                                 str(self.USER[i])[0:int(w / 2) - 3],
+                                 curses.color_pair(1))
+            self.win_mail.addstr(4 + (i * unread * 2) + (i * abstand), 1,
+                                 "Unread E-Mails: " + str(self.unreadcount[i]), curses.A_BOLD)
             for j in range(0, unread):
                 if j < self.unreadcount[i]:
                     self.stdscr.addstr(5 + (j * 2) + (i * unread * 2) + (i * abstand), int(w / 2) + 2,
