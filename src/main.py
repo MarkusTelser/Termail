@@ -29,14 +29,19 @@ class TerMail:
         curses.curs_set(0)
         curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK)
         curses.init_pair(2, curses.COLOR_RED, curses.COLOR_BLACK)
+        curses.init_pair(3, curses.COLOR_GREEN, curses.COLOR_GREEN)
+        y, x = stdscr.getmaxyx()
 
-        x, y = stdscr.getmaxyx()
+        self.win_day = stdscr.subwin(15, int(x / 2), 2, 0)
+        self.win_time = stdscr.subwin(10, int(x / 2), 15, 0)
+        self.win_cmd = stdscr.subwin(1, int(x / 2) - 2, y - 3, 2)
+        self.win_mail = stdscr.subwin(y, int(x / 2), 0, int(x / 2))
 
-        self.win_day = stdscr.subwin(20, 200, 5, 7)
-        self.win2 = stdscr.subwin(30, 200, 15, 5)
-        self.win_cmd = stdscr.subwin(1, 117, 57, 2)
-        self.win_mail = stdscr.subwin(80, int(y / 2) + 10, 5, 50)
-        print(x - 10)
+        # debug
+        self.win_day.bkgd(' ', curses.color_pair(3) | curses.A_BOLD)
+        self.win_time.bkgd(' ', curses.color_pair(3) | curses.A_BOLD)
+        self.win_cmd.bkgd(' ', curses.color_pair(3) | curses.A_BOLD)
+        self.win_mail.bkgd(' ', curses.color_pair(3) | curses.A_BOLD)
 
         # run program
         self.printClock()
@@ -119,7 +124,7 @@ class TerMail:
     def printClock(self):
         try:
             self.win_day.addstr(0, 0, pyfiglet.figlet_format(time.strftime("%A"), font="starwars"), curses.A_BOLD)
-            self.win2.addstr(0, 0, pyfiglet.figlet_format(time.strftime("%H :%M"), font="starwars"), curses.A_BOLD)
+            self.win_time.addstr(0, 0, pyfiglet.figlet_format(time.strftime("%H :%M"), font="starwars"), curses.A_BOLD)
         except Exception as e:
             self.cmd = e
 
