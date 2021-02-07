@@ -1,4 +1,5 @@
 import curses
+import threading
 from curses import textpad
 import time
 import imaplib
@@ -7,6 +8,7 @@ from email.header import decode_header
 import pyfiglet
 import subprocess
 import concurrent.futures
+import psutil
 from multiprocessing import Process
 import credentials_real as cred
 
@@ -14,7 +16,6 @@ import credentials_real as cred
 class TerMail:
     def __init__(self):
         self.bar = '█'  # an extended ASCII 'fill' character
-        self.stdscr = curses.initscr()
         self.cmd = "this is your command line!"
         self.IMAPSERVER = cred.IMAPSERVER
         self.USER = cred.USER
@@ -25,42 +26,52 @@ class TerMail:
         self.mail_process = None
         curses.wrapper(self.__main__)
 
-    def __main__(self, stdscr):
+    def __main__(self, win):
+        self.win = win
         curses.curs_set(0)
         curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK)
-        curses.init_pair(2, curses.COLOR_RED, curses.COLOR_BLACK)
-        curses.init_pair(3, curses.COLOR_GREEN, curses.COLOR_GREEN)
-        y, x = stdscr.getmaxyx()
+        curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_GREEN)
+        curses.init_pair(3, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
+        curses.init_pair(4, curses.COLOR_WHITE, curses.COLOR_BLACK)
+        y, x = self.win.getmaxyx()
 
-        self.win_day = stdscr.subwin(15, int(x / 2), 2, 0)
-        self.win_time = stdscr.subwin(10, int(x / 2), 15, 0)
-        self.win_cmd = stdscr.subwin(1, int(x / 2) - 2, y - 3, 2)
-        self.win_mail = stdscr.subwin(y, int(x / 2), 0, int(x / 2))
+        self.win_day = self.win.subwin(8, int(x / 2) - 2, 2, 2)
+        self.win_day.bkgd(' ', curses.color_pair(2) | curses.A_BOLD)
+        self.win_time = self.win.subwin(8, int(x / 6), 10, 2)
+        self.win_date = self.win.subwin(8, int(x / 4) - 8, 10, int(x / 6) + 2)
+        self.win_battery = self.win.subwin(8, int(x / 8) - 2, 10, int(x / 6) + int(x / 4) - 6)
+        self.win_notes = self.win.subwin(10, int(x / 2) - 2, 20, 2)
+        self.win_cmd = self.win.subwin(1, int(x / 2) - 2, y - 3, 2)
+        self.win_mail = self.win.subwin(y - 4, int(x / 2) - 2, 2, int(x / 2) + 2)
+        self.win_info = self.win.subwin(int(y / 2) - 7, int(x / 2) - 2, int(y / 2) + 2, 2)
 
-        # debug
-        self.win_day.bkgd(' ', curses.color_pair(3) | curses.A_BOLD)
-        self.win_time.bkgd(' ', curses.color_pair(3) | curses.A_BOLD)
-        self.win_cmd.bkgd(' ', curses.color_pair(3) | curses.A_BOLD)
-        self.win_mail.bkgd(' ', curses.color_pair(3) | curses.A_BOLD)
+        self.drawInfoBox()
+        self.printBoxes()
+        self.drawHelpBox()
+        self.win.refresh()
+        self.win_day.refresh()
+        self.win_mail.refresh()
+        self.win_time.refresh()
+        self.win_cmd.refresh()
+        self.win_info.refresh()
+        self.win_notes.refresh()
+        self.win_date.refresh()
+        self.win_battery.refresh()
 
-        # run program
-        self.printClock()
-        self.printBoxes(stdscr)
-        self.printHelp()
-        self.stdscr.refresh()
-
-        p = Process(target=self.cmdinput)
-        p.start()
+        tr = threading.Thread(target=self.cmdinput)
+        tr.start()
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
             for i in range(0, len(self.IMAPSERVER)):
                 executor.submit(self.getMail, self.IMAPSERVER[i], i)
         executor.shutdown(wait=True)
-        self.stdscr.clear()
-        self.printEmail()
-        self.stdscr.refresh()
 
-        p.join()
+        self.printBoxes()
+        self.printEmail()
+        self.win.refresh()
+        # self.win_mail.refresh()
+
+        tr.join()
 
     def getMail(self, IMAPSERVER, i):
         try:
@@ -94,63 +105,68 @@ class TerMail:
             #    mail.uid('STORE', num, '-FLAGS', '\SEEN')
             return True
         except Exception as e:
+            self.cmd = e
             return False
 
-    def printBoxes(self, stdscr):
-        h, w = stdscr.getmaxyx()
-        textpad.rectangle(stdscr, 1, 1, int(h / 2), int(w / 2))
-        textpad.rectangle(stdscr, int(h / 2) + 1, 1, h - 2, int(w / 2))
-        textpad.rectangle(stdscr, 1, int(w / 2) + 1, h - 2, w - 1)
-        textpad.rectangle(stdscr, h - 4, 1, h - 5, int(w / 2))
+    def printBoxes(self):
+        h, w = self.win.getmaxyx()
+        textpad.rectangle(self.win, 1, 1, int(h / 2), int(w / 2))
+        textpad.rectangle(self.win, int(h / 2) + 1, 1, h - 2, int(w / 2))
+        textpad.rectangle(self.win, 1, int(w / 2) + 1, h - 2, w - 1)
+        textpad.rectangle(self.win, h - 4, 1, h - 5, int(w / 2))
 
-    def printHelp(self):
-        h, w = self.stdscr.getmaxyx()
-        self.stdscr.addstr(int(h / 2) + 3, 2, "TerMail - Options:", curses.A_BOLD)
-        self.stdscr.addstr(int(h / 2) + 5, 2, ":ur [pos]              set unread flag on specified pos of mails")
-        self.stdscr.addstr(int(h / 2) + 6, 2, ":r [pos]               set read flag on specified pos of mails")
-        self.stdscr.addstr(int(h / 2) + 7, 2,
-                           ":ur [pos1][pos2]       set unread flag on specified pos1 of mails to specified pos2 mail")
-        self.stdscr.addstr(int(h / 2) + 8, 2,
-                           ":r [pos1][pos2]        set read flag on specified pos1 of mails to specified pos2 mail")
-        self.stdscr.addstr(int(h / 2) + 9, 2, ":urall                 set unread flag on all unread mails")
-        self.stdscr.addstr(int(h / 2) + 10, 2, ":rall                  set read flag on all unread mails")
-        self.stdscr.addstr(int(h / 2) + 11, 2, ":a [note]              add note [note] to window")
-        self.stdscr.addstr(int(h / 2) + 12, 2, ":d [pos]               delete note on [pos] on window")
-        self.stdscr.addstr(int(h / 2) + 13, 2, ":d                     deletes last note on window")
-        self.stdscr.addstr(int(h / 2) + 14, 2, ":o                     open mail service")
-        self.stdscr.addstr(int(h / 2) + 15, 2, ":c                     close mail service")
-        self.stdscr.addstr(int(h / 2) + 16, 2, ":q                     close Program")
+    def drawHelpBox(self):
+        h, w = self.win.getmaxyx()
+        self.win_info.addstr(1, 1, "TerMail - Options:", curses.A_BOLD)
+        self.win_info.addstr(3, 1, ":ur [pos]              set unread flag on specified pos of mails")
+        self.win_info.addstr(4, 1, ":r [pos]               set read flag on specified pos of mails")
+        self.win_info.addstr(5, 1,
+                             ":ur [pos1][pos2]       set unread flag on specified pos1 of mails to specified pos2 mail")
+        self.win_info.addstr(6, 1,
+                             ":r [pos1][pos2]        set read flag on specified pos1 of mails to specified pos2 mail")
+        self.win_info.addstr(7, 1, ":urall                 set unread flag on all unread mails")
+        self.win_info.addstr(8, 1, ":rall                  set read flag on all unread mails")
+        self.win_info.addstr(9, 1, ":a [note]              add note [note] to window")
+        self.win_info.addstr(10, 1, ":d [pos]               delete note on [pos] on window")
+        self.win_info.addstr(11, 1, ":d                     deletes last note on window")
+        self.win_info.addstr(12, 1, ":o                     open mail service")
+        self.win_info.addstr(13, 1, ":c                     close mail service")
+        self.win_info.addstr(14, 1, ":q                     close Program")
 
-    def printClock(self):
-        try:
-            self.win_day.addstr(0, 0, pyfiglet.figlet_format(time.strftime("%A"), font="starwars"), curses.A_BOLD)
-            self.win_time.addstr(0, 0, pyfiglet.figlet_format(time.strftime("%H :%M"), font="starwars"), curses.A_BOLD)
-        except Exception as e:
-            self.cmd = e
+    def drawInfoBox(self):
+        self.win_day.addstr(0, 0, pyfiglet.figlet_format(time.strftime("%A"), font="starwars"), curses.A_BOLD)
+        self.win_time.addstr(0, 0, pyfiglet.figlet_format(time.strftime("%H:%M"), font="starwars"), curses.A_BOLD)
+        self.win_date.addstr(0, 0, pyfiglet.figlet_format(time.strftime("%d.%m.%g"), font="starwars"), curses.A_BOLD)
+        self.win_battery.addstr(1, 5, "Battery:")
+        self.win_battery.addstr(2, 5, "-percentage:")
+        self.win_battery.addstr(3, 5, "  " + str(round(psutil.sensors_battery().percent, 2)) + "%")
+        self.win_battery.addstr(4, 5, "-plugged in:")
+        self.win_battery.addstr(5, 5, "  " + str(psutil.sensors_battery().power_plugged))
+        self.win_notes.addstr(0, 0, pyfiglet.figlet_format(time.strftime("%g"), font="starwars"), curses.A_BOLD)
 
     def printEmail(self):
         abstand = 5
-        h, w = self.stdscr.getmaxyx()
+        h, w = self.win.getmaxyx()
         for i in range(0, len(self.IMAPSERVER)):
             unread = int(len(self.subject) / len(self.IMAPSERVER))
-            self.win_mail.addstr(3 + (i * unread * 2) + (i * abstand), 1,
+            self.win_mail.addstr(1 + (i * unread * 2) + (i * abstand), 1,
                                  str(self.USER[i])[0:int(w / 2) - 3],
                                  curses.color_pair(1))
-            self.win_mail.addstr(4 + (i * unread * 2) + (i * abstand), 1,
+            self.win_mail.addstr(2 + (i * unread * 2) + (i * abstand), 1,
                                  "Unread E-Mails: " + str(self.unreadcount[i]), curses.A_BOLD)
             for j in range(0, unread):
                 if j < self.unreadcount[i]:
-                    self.stdscr.addstr(5 + (j * 2) + (i * unread * 2) + (i * abstand), int(w / 2) + 2,
-                                       "Subject: " + str(self.subject[j + (i * unread)][0:int(w / 2) - 15]),
-                                       curses.color_pair(2))
-                    self.stdscr.addstr(6 + (j * 2) + (i * unread * 2) + (i * abstand), int(w / 2) + 2,
-                                       "From: " + str(self.from_[j + (i * unread)][0:int(w / 2) - 15]),
-                                       curses.color_pair(2))
+                    self.win_mail.addstr(3 + (j * 2) + (i * unread * 2) + (i * abstand), 1,
+                                         "Subject: " + str(self.subject[j + (i * unread)][0:int(w / 2) - 15]),
+                                         curses.color_pair(2))
+                    self.win_mail.addstr(4 + (j * 2) + (i * unread * 2) + (i * abstand), 1,
+                                         "From: " + str(self.from_[j + (i * unread)][0:int(w / 2) - 15]),
+                                         curses.color_pair(2))
                 else:
-                    self.stdscr.addstr(5 + (j * 2) + (i * unread * 2) + (i * abstand), int(w / 2) + 2,
-                                       "Subject: " + str(self.subject[j + (i * unread)][0:int(w / 2) - 15]))
-                    self.stdscr.addstr(6 + (j * 2) + (i * unread * 2) + (i * abstand), int(w / 2) + 2,
-                                       "From: " + str(self.from_[j + (i * unread)][0:int(w / 2) - 15]))
+                    self.win_mail.addstr(3 + (j * 2) + (i * unread * 2) + (i * abstand), 1,
+                                         "Subject: " + str(self.subject[j + (i * unread)][0:int(w / 2) - 15]))
+                    self.win_mail.addstr(4 + (j * 2) + (i * unread * 2) + (i * abstand), 1,
+                                         "From: " + str(self.from_[j + (i * unread)][0:int(w / 2) - 15]))
 
     def cmdinput(self):
         # print instruction for cmd
@@ -160,7 +176,7 @@ class TerMail:
         # read input and catch control c
         while True:
             try:
-                c = self.stdscr.getch()
+                c = self.win.getch()
             except KeyboardInterrupt:
                 return False
             # catch nothing typed in time
