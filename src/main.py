@@ -10,34 +10,21 @@ import pyfiglet
 import subprocess
 import concurrent.futures
 import psutil
-from multiprocessing import Process
 import credentials_real as cred
 
 
 class TerMail:
     def __init__(self):
-        self.bar = '█'  # an extended ASCII 'fill' character
-        self.cmd = "this is your command line!"
-        self.IMAPSERVER = cred.IMAPSERVER
-        self.USER = cred.USER
-        self.PASSWORD = cred.PASSWORD
-        self.unreadcount = [] * 10
-        self.subject = [] * len(self.IMAPSERVER) * 5
-        self.from_ = [] * len(self.IMAPSERVER) * 5
-        self.mail_process = None
-        self.notes = [None]
-
         curses.wrapper(self.__main__)
 
     def __main__(self, win):
         self.win = win
         curses.curs_set(0)
+
+        # create all sub win, color pairs
+        y, x = self.win.getmaxyx()
         curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK)
         curses.init_pair(2, curses.COLOR_RED, curses.COLOR_BLACK)
-        curses.init_pair(3, curses.COLOR_BLACK, curses.COLOR_MAGENTA)
-        curses.init_pair(4, curses.COLOR_BLACK, curses.COLOR_WHITE)
-        y, x = self.win.getmaxyx()
-
         self.win_title = self.win.subwin(8, int(x / 3), 2, 2)
         self.win_version = self.win.subwin(8, int(x / 6) - 1, 2, int(x / 3) + 2)
         self.win_day = self.win.subwin(8, int(x / 2) - 2, 10, 2)
@@ -49,43 +36,36 @@ class TerMail:
         self.win_mail = self.win.subwin(y - 4, int(x / 2) - 2, 2, int(x / 2) + 2)
         self.win_info = self.win.subwin(int(y / 2) - 7, int(x / 2) - 2, int(y / 2) + 2, 2)
 
+        # variables
         self.notes_finished = [None] * self.win_notes.getmaxyx()[0]
-        print(len(self.notes_finished))
+        self.bar = '█'  # an extended ASCII 'fill' character
+        self.IMAP_SERVER = cred.IMAPSERVER
+        self.USER = cred.USER
+        self.PASSWORD = cred.PASSWORD
+        self.unread_count = [] * 10
+        self.subject = [] * len(self.IMAP_SERVER) * 5
+        self.from_ = [] * len(self.IMAP_SERVER) * 5
+        self.notes = [None]
 
         self.win_title.bkgd(' ', curses.color_pair(1) | curses.A_BOLD)
         self.win_version.bkgd(' ', curses.color_pair(1) | curses.A_BOLD)
-        # self.win_date.bkgd(' ', curses.color_pair(2) | curses.A_BOLD)
-        # self.win_title.bkgd(' ', curses.color_pair(2) | curses.A_BOLD)
-        # self.win_time.bkgd(' ', curses.color_pair(3) | curses.A_BOLD)
-        # self.win_day.bkgd(' ', curses.color_pair(3) | curses.A_BOLD)
-        # self.win_battery.bkgd(' ', curses.color_pair(4) | curses.A_BOLD)
+        self.win_cmd.bkgd(' ', curses.color_pair(1) | curses.A_BOLD)
 
+        self.drawBoxes()
         self.drawInfoBox()
-        # self.printBoxes()
         self.drawHelpBox()
-        self.win.refresh()
-        # self.win_day.refresh()
-        # self.win_mail.refresh()
-        # self.win_time.refresh()
-        # self.win_cmd.refresh()
-        # self.win_info.refresh()
-        # self.win_notes.refresh()
-        # self.win_date.refresh()
-        # self.win_battery.refresh()
-        # self.win_version.refresh()
+        self.refreshAll()
 
         tr = threading.Thread(target=self.cmdinput)
         tr.start()
 
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            for i in range(0, len(self.IMAPSERVER)):
-                executor.submit(self.getMail, self.IMAPSERVER[i], i)
+            for i in range(0, len(self.IMAP_SERVER)):
+                executor.submit(self.getMail, self.IMAP_SERVER[i], i)
         executor.shutdown(wait=True)
 
-        self.printBoxes()
         self.printEmail()
-        self.win.refresh()
-        # self.win_mail.refresh()
+        self.refreshAll()
 
         tr.join()
 
@@ -95,7 +75,7 @@ class TerMail:
             mail.login(self.USER[i], self.PASSWORD[i])
             status, m = mail.select("INBOX")  # connect to inbox.
             status, v = mail.search(None, '(UNSEEN)')
-            self.unreadcount.append(len(v[0].split()))
+            self.unread_count.append(len(v[0].split()))
             messages = int(m[0])
             N = 7
             k = 0
@@ -124,7 +104,7 @@ class TerMail:
             self.cmd = e
             return False
 
-    def printBoxes(self):
+    def drawBoxes(self):
         h, w = self.win.getmaxyx()
         textpad.rectangle(self.win, 1, 1, int(h / 2), int(w / 2))
         textpad.rectangle(self.win, int(h / 2) + 1, 1, h - 2, int(w / 2))
@@ -153,6 +133,7 @@ class TerMail:
         self.win_info.addstr(15, 1, ":o                     open mail service")
         self.win_info.addstr(16, 1, ":c                     close mail service")
         self.win_info.addstr(18, 1, ":q                     close Program")
+        self.win_info.addstr(19, 1, "[] = must, {} = optional")
 
     def drawInfoBox(self):
         self.win_title.addstr(0, 0, pyfiglet.figlet_format("TerMail", font="starwars"))
@@ -173,6 +154,7 @@ class TerMail:
         self.win_battery.addstr(9, 2, "  " + str(psutil.users()[0].terminal))
 
         # notes
+        self.win_notes.clear()
         self.win_notes.addstr(0, 0, "Notes/TODO:", curses.A_BOLD)
         for i in range(1, self.win_notes.getmaxyx()[0]):
             if self.notes_finished[i] is None:
@@ -183,19 +165,20 @@ class TerMail:
             elif not self.notes_finished[i]:
                 self.win_notes.addstr(i, 0, "- " + str(i) + ". " + str(self.notes[i]) if i < len(self.notes) else "",
                                       curses.color_pair(2))
+        self.refreshAll()
 
     def printEmail(self):
         abstand = 5
         h, w = self.win.getmaxyx()
-        for i in range(0, len(self.IMAPSERVER)):
-            unread = int(len(self.subject) / len(self.IMAPSERVER))
+        for i in range(0, len(self.IMAP_SERVER)):
+            unread = int(len(self.subject) / len(self.IMAP_SERVER))
             self.win_mail.addstr(1 + (i * unread * 2) + (i * abstand), 1,
                                  str(self.USER[i])[0:int(w / 2) - 3],
                                  curses.color_pair(1))
             self.win_mail.addstr(2 + (i * unread * 2) + (i * abstand), 1,
-                                 "Unread E-Mails: " + str(self.unreadcount[i]), curses.A_BOLD)
+                                 "Unread E-Mails: " + str(self.unread_count[i]), curses.A_BOLD)
             for j in range(0, unread):
-                if j < self.unreadcount[i]:
+                if j < self.unread_count[i]:
                     self.win_mail.addstr(3 + (j * 2) + (i * unread * 2) + (i * abstand), 1,
                                          "Subject: " + str(self.subject[j + (i * unread)][0:int(w / 2) - 15]),
                                          curses.color_pair(2))
@@ -210,7 +193,8 @@ class TerMail:
 
     def cmdinput(self):
         # print instruction for cmd
-        self.win_cmd.addstr(0, 0, self.cmd, curses.color_pair(1))
+        self.cmd = "this is your command line!"
+        self.win_cmd.addstr(0, 0, self.cmd)
         self.win_cmd.refresh()
 
         # read input and catch control c
@@ -237,7 +221,7 @@ class TerMail:
             # draw to window and refresh
             self.win_cmd.clear()
             try:
-                self.win_cmd.addstr(0, 0, self.cmd, curses.color_pair(1))
+                self.win_cmd.addstr(0, 0, self.cmd)
             except Exception:
                 self.cmd = ""
             self.win_cmd.refresh()
@@ -248,33 +232,22 @@ class TerMail:
         if ":a " in self.cmd and len(self.notes) < self.win_notes.getmaxyx()[0]:
             self.notes.append(self.cmd[3:])
             self.drawInfoBox()
-            #self.win_notes.refresh()
-            self.win.refresh()
         elif ":d" == self.cmd and len(self.notes) > 1:
             self.notes.pop()
-            self.win_notes.clear()
             self.drawInfoBox()
-            self.win_notes.refresh()
         elif ":d " in self.cmd and int(self.cmd[3:]) != 0:
             del self.notes[int(self.cmd[3:])]
-            self.win_notes.clear()
             self.drawInfoBox()
-            self.win_notes.refresh()
         elif ":dd" == self.cmd and len(self.notes) > 1:
             self.notes = self.notes[0:1]
-            self.win_notes.clear()
             self.drawInfoBox()
-            self.win_notes.refresh()
         elif ":f " in self.cmd:
             self.notes_finished[int(self.cmd[3:])] = True
-            self.win_notes.clear()
             self.drawInfoBox()
-            self.win_notes.refresh()
         elif ":u " in self.cmd:
             self.notes_finished[int(self.cmd[3:])] = False
-            self.win_notes.clear()
             self.drawInfoBox()
-            self.win_notes.refresh()
+        self.win_notes.refresh()
 
         # Mail commands
         if self.cmd == ":o":
@@ -289,6 +262,32 @@ class TerMail:
             return True  # Exit the while loop
 
         self.cmd = ""
+
+    def refreshAll(self):
+        self.win_title.refresh()
+        self.win_version.refresh()
+        self.win_day.refresh()
+        self.win_time.refresh()
+        self.win_date.refresh()
+        self.win_battery.refresh()
+        self.win_notes.refresh()
+        self.win_cmd.refresh()
+        self.win_mail.refresh()
+        self.win_info.refresh()
+        self.win.refresh()
+
+    def clearAll(self):
+        self.win_title.clear()
+        self.win_version.clear()
+        self.win_day.clear()
+        self.win_time.clear()
+        self.win_date.clear()
+        self.win_battery.clear()
+        self.win_notes.clear()
+        self.win_cmd.clear()
+        self.win_mail.clear()
+        self.win_info.clear()
+        self.win.clear()
 
 
 t = TerMail()
